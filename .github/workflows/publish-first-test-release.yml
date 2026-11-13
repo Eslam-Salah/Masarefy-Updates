@@ -3,7 +3,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'staging/Masarefy-v1.0.0.apk'
+      - 'staging/parts/**'
 permissions:
   contents: write
 jobs:
@@ -11,16 +11,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Verify exact signed APK SHA-256
+      - name: Reassemble and verify signed APK
         run: |
           set -euo pipefail
-          echo '94e44239de8b360f9c3bba27d598a1e986cdf17d60b98b39d2359bd5875a69ef  staging/Masarefy-v1.0.0.apk' | sha256sum --check
-      - name: Publish as PRE-RELEASE until on-device QA passes
+          cat staging/parts/part_*.bin > "$RUNNER_TEMP/Masarefy-v1.0.0.apk"
+          echo "94e44239de8b360f9c3bba27d598a1e986cdf17d60b98b39d2359bd5875a69ef  $RUNNER_TEMP/Masarefy-v1.0.0.apk" | sha256sum --check
+      - name: Publish initial v1.0.0 as pre-release until on-device QA passes
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create v1.0.0 \
-            'staging/Masarefy-v1.0.0.apk#Masarefy-v1.0.0.apk' \
+            "$RUNNER_TEMP/Masarefy-v1.0.0.apk#Masarefy-v1.0.0.apk" \
             --repo "${{ github.repository }}" \
             --title 'Masarefy v1.0.0 (Testing)' \
             --notes-file RELEASE_NOTES_v1.0.0.md \
