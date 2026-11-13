@@ -1,0 +1,27 @@
+name: Publish verified Masarefy v1.0.0 test APK
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'staging/Masarefy-v1.0.0.apk'
+permissions:
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify exact signed APK SHA-256
+        run: |
+          set -euo pipefail
+          echo '94e44239de8b360f9c3bba27d598a1e986cdf17d60b98b39d2359bd5875a69ef  staging/Masarefy-v1.0.0.apk' | sha256sum --check
+      - name: Publish as PRE-RELEASE until on-device QA passes
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create v1.0.0 \
+            'staging/Masarefy-v1.0.0.apk#Masarefy-v1.0.0.apk' \
+            --repo "${{ github.repository }}" \
+            --title 'Masarefy v1.0.0 (Testing)' \
+            --notes-file RELEASE_NOTES_v1.0.0.md \
+            --prerelease
