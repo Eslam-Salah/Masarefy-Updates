@@ -56,7 +56,7 @@ jobs:
           APK="$(find release -maxdepth 1 -name '*.apk' -type f | head -1)"
           "$TOOLS_DIR/apksigner" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/masarefy-apk-signer.txt"
           grep -q '^Verifies$' "$RUNNER_TEMP/masarefy-apk-signer.txt"
-          grep -Eq '(Signer #1|V2 Signer): certificate SHA-256 digest: 7c700938865ff6bd655808547d300fd5bf127da76d74b7a6ba9c9fd402993ac5' "$RUNNER_TEMP/masarefy-apk-signer.txt"
+          grep -Fq 'certificate SHA-256 digest: 7c700938865ff6bd655808547d300fd5bf127da76d74b7a6ba9c9fd402993ac5' "$RUNNER_TEMP/masarefy-apk-signer.txt"
           BADGING="$("$TOOLS_DIR/aapt" dump badging "$APK")"
           echo "$BADGING" | grep -q "package: name='com.masarefy.app'"
           RELEASE_VERSION="$(echo "$BADGING" | sed -nE "s/^package: name='com.masarefy.app' versionCode='[0-9]+' versionName='([^']+)'.*/\1/p" | head -1)"
