@@ -1,17 +1,23 @@
 # مصاريفي | Masarefy Updates
 
-هذه قناة **الإصدارات العامة** لتطبيق مصاريفي على Android. كود المصدر موجود في مستودع خاص.
+المستودع العام الرسمي لتنزيل تحديثات تطبيق **مصاريفي** على Android.
 
-## الإصدار الأول
-- التطبيق: `com.masarefy.app`
-- الإصدار: `v1.0.0`، رقم البناء `1`.
-- تم **بناء APK موقّع واختباره آليًا** من المصدر الحالي: [GitHub Actions #43540203511](https://github.com/Eslam-Salah/Masarefy-Android/actions/runs/43540203511).
-- **حالة النشر العام:** لم يُنشأ GitHub Release بعد. ينتظر التثبيت التجريبي والرفع اليدوي.
-- شهادة التوقيع SHA-256: `7c700938865ff6bd655808547d300fd5bf127da76d74b7a6ba9c9fd402993ac5`.
+## أول إصدار رسمي متاح
 
-## تنزيل التحديثات لاحقًا
-بمجرد نشر `GitHub Release` بملف APK الموقّع، سيكتشف التطبيق الإصدارات الجديدة من الإعدادات ← التحديثات ويعرض «ما الجديد». التنزيل يتم داخل مصاريفي وتأكيد التثبيت من Android.
+- **الإصدار:** `v1.0.0`
+- **رقم البناء:** `1`
+- **معرف التطبيق:** `com.masarefy.app`
+- **ملف APK:** [Masarefy-v1.0.0.apk](https://github.com/Eslam-Salah/Masarefy-Updates/releases/download/v1.0.0/Masarefy-v1.0.0.apk)
+- **صفحة الإصدار:** [v1.0.0](https://github.com/Eslam-Salah/Masarefy-Updates/releases/tag/v1.0.0)
+- **SHA-256:** `eae3f7fda155c189d2c70132db21fa34beed8057c5edf79e3a7d22747693b70b`
+- **بصمة شهادة التوقيع:** `7c700938865ff6bd655808547d300fd5bf127da76d74b7a6ba9c9fd402993ac5`
 
-[صفحة الإصدارات](https://github.com/Eslam-Salah/Masarefy-Updates/releases)
+تم بناء APK وتوقيعه واختباره آليًا عبر [GitHub Actions في مستودع المصدر الخاص](https://github.com/Eslam-Salah/Masarefy-Android/actions/runs/43540203511). وتم التحقق من الملف قبل النشر عبر [GitHub Actions في هذا المستودع](https://github.com/Eslam-Salah/Masarefy-Updates/actions/runs/43551396157).
 
-> لا تنشر مفتاح توقيع التطبيق أو كلمات مروره أو بيانات المستخدمين في هذا المستودع.
+يحتفظ مستودع [Masarefy-Android](https://github.com/Eslam-Salah/Masarefy-Android) **بكود المصدر في وضع خاص**. لا يحتوي هذا المستودع العام على مفاتيح التوقيع أو كلمات المرور أو البيانات المالية للمستخدمين.
+
+## التحديثات القادمة
+
+عندما تتوفر إصدارات أحدث في GitHub Releases، تستطيع النسخ المثبّتة من مصاريفي اكتشافها وعرض «ما الجديد» وتنزيل APK من داخل التطبيق؛ وتأكيد التثبيت يتم من Android.
+
+> تنويه: اجتازت النسخة فحوصات البناء والاختبارات الآلية. لم يُؤكَّد بعد اختبار جميع الوظائف على هاتف فعلي.
