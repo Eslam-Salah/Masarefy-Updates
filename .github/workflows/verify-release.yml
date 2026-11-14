@@ -19,8 +19,18 @@ jobs:
     timeout-minutes: 15
     env:
       GH_TOKEN: ${{ github.token }}
-      RELEASE_TAG: ${{ github.event.release.tag_name || 'v1.0.0' }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || '' }}
     steps:
+      - name: Resolve latest release tag for manual/push verification
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "$RELEASE_TAG" ]; then
+            RELEASE_TAG="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName)"
+            test -n "$RELEASE_TAG"
+            echo "RELEASE_TAG=$RELEASE_TAG" >> "$GITHUB_ENV"
+          fi
+
       - name: Download APK and SHA-256 from public release
         shell: bash
         run: |
