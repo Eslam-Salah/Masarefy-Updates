@@ -1,0 +1,59 @@
+name: Verify published Masarefy APK integrity
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/verify-release.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Check published Android package and signing identity
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || 'v1.0.0' }}
+    steps:
+      - name: Download APK and SHA-256 from public release
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          gh release download "$RELEASE_TAG" \
+            --repo "${{ github.repository }}" \
+            --pattern '*.apk' \
+            --pattern '*.sha256' \
+            --dir release \
+            --clobber
+          test "$(find release -maxdepth 1 -name '*.apk' -type f | wc -l)" -eq 1
+          test "$(find release -maxdepth 1 -name '*.apk.sha256' -type f | wc -l)" -eq 1
+          (cd release && sha256sum --check *.apk.sha256)
+
+      - name: Verify official Masarefy signing identity and release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOOLS_DIR="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          test -x "$TOOLS_DIR/apksigner"
+          test -x "$TOOLS_DIR/aapt"
+          APK="$(find release -maxdepth 1 -name '*.apk' -type f | head -1)"
+          "$TOOLS_DIR/apksigner" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/masarefy-apk-signer.txt"
+          grep -q '^Verifies$' "$RUNNER_TEMP/masarefy-apk-signer.txt"
+          grep -Eq '(Signer #1|V2 Signer): certificate SHA-256 digest: 7c700938865ff6bd655808547d300fd5bf127da76d74b7a6ba9c9fd402993ac5' "$RUNNER_TEMP/masarefy-apk-signer.txt"
+          BADGING="$("$TOOLS_DIR/aapt" dump badging "$APK")"
+          echo "$BADGING" | grep -q "package: name='com.masarefy.app'"
+          RELEASE_VERSION="$(echo "$BADGING" | sed -nE "s/^package: name='com.masarefy.app' versionCode='[0-9]+' versionName='([^']+)'.*/\1/p" | head -1)"
+          test -n "$RELEASE_VERSION"
+          test "v$RELEASE_VERSION" = "$RELEASE_TAG"
+          if [ "$RELEASE_TAG" = 'v1.0.0' ]; then
+            echo 'eae3f7fda155c189d2c70132db21fa34beed8057c5edf79e3a7d22747693b70b' > "$RUNNER_TEMP/expected-sha256.txt"
+            test "$(sha256sum "$APK" | cut -d ' ' -f1)" = "$(cat "$RUNNER_TEMP/expected-sha256.txt")"
+          fi
+          echo "Verified release: $RELEASE_TAG (official certificate, matching package/version and SHA-256)"
