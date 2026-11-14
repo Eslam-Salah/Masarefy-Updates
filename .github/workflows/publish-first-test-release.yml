@@ -1,28 +1,89 @@
-name: Publish verified Masarefy v1.0.0 test APK
+name: Publish verified Masarefy v1.0.0 signed APK
+
 on:
   push:
     branches: [main]
     paths:
-      - 'staging/parts/**'
+      - 'release-requests/v1.0.0.json'
+
 permissions:
   contents: write
+
+concurrency:
+  group: masarefy-public-v1.0.0
+  cancel-in-progress: false
+
 jobs:
   publish:
+    name: Verify signature and publish first APK
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - name: Reassemble and verify signed APK
+      - name: Checkout release notes
+        uses: actions/checkout@v4
+
+      - name: Download signed APK archive and verify SHA-256
+        shell: bash
         run: |
           set -euo pipefail
-          cat staging/parts/part_*.bin > "$RUNNER_TEMP/Masarefy-v1.0.0.apk"
-          echo "94e44239de8b360f9c3bba27d598a1e986cdf17d60b98b39d2359bd5875a69ef  $RUNNER_TEMP/Masarefy-v1.0.0.apk" | sha256sum --check
-      - name: Publish initial v1.0.0 as pre-release until on-device QA passes
+          python3 - <<'PY'
+          import json, hashlib, pathlib, urllib.request
+          source = json.loads(pathlib.Path("release-requests/v1.0.0.json").read_text())
+          if source.get("version") != "v1.0.0":
+              raise SystemExit("Incorrect version")
+          if source.get("archive_sha256") != "a462af65a8d5072eaef275f37628d2e6d78b12d3d9a233a5572d87dffc922979":
+              raise SystemExit("Incorrect archive fingerprint")
+          url = source.get("archive_url", "")
+          if not url.startswith("https://sdmntpritalynorth.oaiusercontent.com/files/"):
+              raise SystemExit("Unexpected download origin")
+          req = urllib.request.Request(url, headers={"User-Agent":"Masarefy-GitHub-Actions-Release/1.0"})
+          out = pathlib.Path("release-archive.zip")
+          with urllib.request.urlopen(req, timeout=120) as response, out.open("wb") as target:
+              while True:
+                  chunk = response.read(131072)
+                  if not chunk:
+                      break
+                  target.write(chunk)
+          actual = hashlib.sha256(out.read_bytes()).hexdigest()
+          if actual != source["archive_sha256"]:
+              raise SystemExit("Downloaded archive checksum mismatch")
+          print("Signed APK archive checksum verified")
+          PY
+          mkdir -p release
+          unzip -oq release-archive.zip -d release
+          test -s release/Masarefy-v1.0.0.apk
+          test -s release/Masarefy-v1.0.0.apk.sha256
+          (cd release && sha256sum --check Masarefy-v1.0.0.apk.sha256)
+          echo 'eae3f7fda155c189d2c70132db21fa34beed8057c5edf79e3a7d22747693b70b  release/Masarefy-v1.0.0.apk' | sha256sum --check
+
+      - name: Verify official Android identity and signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=release/Masarefy-v1.0.0.apk
+          TOOLS_DIR="$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          test -x "$TOOLS_DIR/apksigner"
+          test -x "$TOOLS_DIR/aapt"
+          "$TOOLS_DIR/apksigner" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/masarefy-signature.txt"
+          grep -q '^Verifies$' "$RUNNER_TEMP/masarefy-signature.txt"
+          grep -q 'Signer #1 certificate SHA-256 digest: 7c700938865ff6bd655808547d300fd5bf127da76d74b7a6ba9c9fd402993ac5' "$RUNNER_TEMP/masarefy-signature.txt"
+          "$TOOLS_DIR/aapt" dump badging "$APK" | grep "package: name='com.masarefy.app' versionCode='1' versionName='1.0.0'"
+
+      - name: Publish GitHub Release in public repository
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        shell: bash
         run: |
+          set -euo pipefail
+          if gh release view v1.0.0 --repo "$GH_REPO" >/dev/null 2>&1; then
+            echo 'v1.0.0 already exists; refusing to replace published assets'
+            exit 1
+          fi
           gh release create v1.0.0 \
-            "$RUNNER_TEMP/Masarefy-v1.0.0.apk#Masarefy-v1.0.0.apk" \
-            --repo "${{ github.repository }}" \
-            --title 'Masarefy v1.0.0 (Testing)' \
+            'release/Masarefy-v1.0.0.apk#Masarefy-v1.0.0.apk' \
+            'release/Masarefy-v1.0.0.apk.sha256#Masarefy-v1.0.0.apk.sha256' \
+            --repo "$GH_REPO" \
+            --title 'Masarefy v1.0.0 — First Release' \
             --notes-file RELEASE_NOTES_v1.0.0.md \
-            --prerelease
+            --latest
