@@ -66,7 +66,7 @@ jobs:
           test -x "$TOOLS_DIR/aapt"
           "$TOOLS_DIR/apksigner" verify --verbose --print-certs "$APK" | tee "$RUNNER_TEMP/masarefy-signature.txt"
           grep -q '^Verifies$' "$RUNNER_TEMP/masarefy-signature.txt"
-          grep -q 'Signer #1 certificate SHA-256 digest: 7c700938865ff6bd655808547d300fd5bf127da76d74b7a6ba9c9fd402993ac5' "$RUNNER_TEMP/masarefy-signature.txt"
+          grep -Eq '(Signer #1|V2 Signer): certificate SHA-256 digest: 7c700938865ff6bd655808547d300fd5bf127da76d74b7a6ba9c9fd402993ac5' "$RUNNER_TEMP/masarefy-signature.txt"
           "$TOOLS_DIR/aapt" dump badging "$APK" | grep "package: name='com.masarefy.app' versionCode='1' versionName='1.0.0'"
 
       - name: Publish GitHub Release in public repository
