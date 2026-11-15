@@ -1,0 +1,110 @@
+name: Publish verified signed Masarefy v1.0.3 APK
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/release-payload/v1.0.3-download.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  publish-verified-apk:
+    if: github.repository == 'Eslam-Salah/Masarefy-Updates'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Load verified signed archive pointer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t release < .github/release-payload/v1.0.3-download.txt
+          test "${#release[@]}" -eq 2
+          [[ "${release[0]}" =~ ^[0-9a-f]{64}$ ]] || { echo "Invalid SHA-256 in release payload"; exit 1; }
+          [[ "${release[1]}" == https://sdmntpritalynorth.oaiusercontent.com/files/* ]] ||
+            { echo "Release archive source is not trusted"; exit 1; }
+          echo "RELEASE_SHA256=${release[0]}" >> "$GITHUB_ENV"
+          # Do not print the short-lived signed archive URL.
+          echo "RELEASE_ARCHIVE_URL=${release[1]}" >> "$GITHUB_ENV"
+
+      - name: Obtain the signed APK and checksum only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/verified-release"
+          curl --fail --location --silent --show-error --retry 3 --connect-timeout 15 --max-time 150 \
+            "$RELEASE_ARCHIVE_URL" --output "$RUNNER_TEMP/signed-v103.zip"
+          unzip -tqq "$RUNNER_TEMP/signed-v103.zip"
+          test "$(unzip -Z1 "$RUNNER_TEMP/signed-v103.zip" | wc -l)" -eq 2
+          unzip -Z1 "$RUNNER_TEMP/signed-v103.zip" | grep -Fx 'Masarefy-v1.0.3.apk'
+          unzip -Z1 "$RUNNER_TEMP/signed-v103.zip" | grep -Fx 'Masarefy-v1.0.3.apk.sha256'
+          unzip -qq "$RUNNER_TEMP/signed-v103.zip" -d "$RUNNER_TEMP/verified-release"
+          cd "$RUNNER_TEMP/verified-release"
+          sha256sum --check Masarefy-v1.0.3.apk.sha256
+          echo "$RELEASE_SHA256  Masarefy-v1.0.3.apk" | sha256sum --check
+
+      - name: Install APK signature verification tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'build-tools;36.0.0'
+
+      - name: Verify original signing identity and release version
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$RUNNER_TEMP/verified-release/Masarefy-v1.0.3.apk"
+          TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          "$TOOLS/apksigner" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/release-certificate.txt"
+          grep -Fi 'Signer #1 certificate SHA-256 digest: 7c700938865ff6bd655808547d300fd5bf127da76d74b7a6ba9c9fd402993ac5' "$RUNNER_TEMP/release-certificate.txt"
+          "$TOOLS/aapt" dump badging "$APK" |
+            grep -F "package: name='com.masarefy.app' versionCode='4' versionName='1.0.3'"
+
+      - name: Publish v1.0.3 exactly once with Arabic release notes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view v1.0.3 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Release v1.0.3 already exists: refusing to overwrite.' >&2
+            exit 1
+          fi
+          cat > "$RUNNER_TEMP/verified-release/RELEASE_NOTES.md" <<'NOTES'
+          مصاريفي 1.0.3 — تحسينات الواجهة والقراءة
+
+          - تحسين قراءة المعاملات والمبالغ والملاحظات والتصنيفات الطويلة في الشاشات الصغيرة.
+          - تنظيم البحث والفلاتر والتنقل بين الشهور بشكل أوضح.
+          - تحسين التقارير والرسم الدائري وتوزيع المصروفات عند تكبير خط الهاتف.
+          - منع زر «اسأل مصاريفي» العائم من تغطية المعاملات في الرئيسية، مع تقليل المساحات الزائدة.
+          - تحسين الثبات واختبارات التحديث دون إضافة ميزات أو تعديل البيانات المالية.
+
+          النسخة موقعة بنفس الشهادة الرسمية، وقد اجتازت اختبار الترقية الفعلية من APK v1.0.2 الرسمي على محاكي Android مع الحفاظ على بيانات مالية تجريبية.
+          NOTES
+          cd "$RUNNER_TEMP/verified-release"
+          gh release create v1.0.3 Masarefy-v1.0.3.apk Masarefy-v1.0.3.apk.sha256 \
+            --repo "$GITHUB_REPOSITORY" --title 'مصاريفي v1.0.3' \
+            --notes-file RELEASE_NOTES.md --latest
+
+      - name: Independently re-download and verify published APK
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/recheck-public"
+          gh release download v1.0.3 --repo "$GITHUB_REPOSITORY" \
+            --pattern 'Masarefy-v1.0.3.apk' \
+            --pattern 'Masarefy-v1.0.3.apk.sha256' \
+            --dir "$RUNNER_TEMP/recheck-public"
+          cd "$RUNNER_TEMP/recheck-public"
+          sha256sum --check Masarefy-v1.0.3.apk.sha256
+          echo "$RELEASE_SHA256  Masarefy-v1.0.3.apk" | sha256sum --check
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs Masarefy-v1.0.3.apk | 
+            grep -Fi 'Signer #1 certificate SHA-256 digest: 7c700938865ff6bd655808547d300fd5bf127da76d74b7a6ba9c9fd402993ac5'
