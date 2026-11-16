@@ -1,0 +1,145 @@
+name: Publish new first Masarefy v1.0.0 after verified signing (reset old Releases)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/release-payload/v1.0.0-download.txt'
+
+permissions:
+  contents: write
+
+jobs:
+  publish-first-release:
+    if: github.repository == 'Eslam-Salah/Masarefy-Updates'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read signed ZIP pointer and pinned APK SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t payload < .github/release-payload/v1.0.0-download.txt
+          test "${#payload[@]}" -eq 2
+          [[ "${payload[0]}" =~ ^[0-9a-f]{64}$ ]] || { echo 'Invalid release checksum'; exit 1; }
+          [[ "${payload[1]}" == https://sdmntpritalynorth.oaiusercontent.com/files/* ]] ||
+            { echo 'Untrusted signed release download host'; exit 1; }
+          echo "APK_SHA256=${payload[0]}" >> "$GITHUB_ENV"
+          echo "SIGNED_ARCHIVE_URL=${payload[1]}" >> "$GITHUB_ENV"
+
+      - name: Download and verify replacement APK before changing any existing releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/new-release"
+          curl --fail --location --silent --show-error --retry 3 \
+            --connect-timeout 15 --max-time 150 "$SIGNED_ARCHIVE_URL" > "$RUNNER_TEMP/new-release.zip"
+          unzip -tqq "$RUNNER_TEMP/new-release.zip"
+          test "$(unzip -Z1 "$RUNNER_TEMP/new-release.zip" | wc -l)" -eq 2
+          unzip -Z1 "$RUNNER_TEMP/new-release.zip" | grep -Fx 'Masarefy-v1.0.0.apk'
+          unzip -Z1 "$RUNNER_TEMP/new-release.zip" | grep -Fx 'Masarefy-v1.0.0.apk.sha256'
+          unzip -qq "$RUNNER_TEMP/new-release.zip" -d "$RUNNER_TEMP/new-release"
+          (cd "$RUNNER_TEMP/new-release" && sha256sum --check Masarefy-v1.0.0.apk.sha256)
+          echo "$APK_SHA256  $RUNNER_TEMP/new-release/Masarefy-v1.0.0.apk" | sha256sum --check
+
+      - name: Install signing verification tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -1)"
+          test -n "$SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" 'build-tools;36.0.0'
+
+      - name: Validate exact NEW signing certificate and first version
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$RUNNER_TEMP/new-release/Masarefy-v1.0.0.apk"
+          TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          "$TOOLS/apksigner" verify --verbose --print-certs "$APK" > "$RUNNER_TEMP/new-cert.txt"
+          grep -Fi 'Signer #1 certificate SHA-256 digest: fad87f51fe359d06837c915c20f044b1311fea600643e1726649da3f1243e155' "$RUNNER_TEMP/new-cert.txt"
+          "$TOOLS/aapt" dump badging "$APK" |
+            grep -F "package: name='com.masarefy.app' versionCode='1' versionName='1.0.0'"
+
+      - name: Retire old v1.0.0/v1.0.1/v1.0.2 releases only after new APK passes all checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/prior"
+          same_new_release=0
+          if gh release view v1.0.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release download v1.0.0 --repo "$GITHUB_REPOSITORY" --pattern 'Masarefy-v1.0.0.apk' \
+              --dir "$RUNNER_TEMP/prior"
+            digest="$(sha256sum "$RUNNER_TEMP/prior/Masarefy-v1.0.0.apk" | cut -d' ' -f1)"
+            if [ "$digest" = "$APK_SHA256" ]; then
+              same_new_release=1
+            elif [ "$digest" != 'eae3f7fda155c189d2c70132db21fa34beed8057c5edf79e3a7d22747693b70b' ]; then
+              echo 'Existing v1.0.0 is neither the verified old nor the new release; refusing deletion.' >&2
+              exit 1
+            fi
+          fi
+          for entry in 'v1.0.2:8aa89bcd47225bbb2b8895752a09185f6bb84466678b7005beb44e4a12a2b3be' \
+                       'v1.0.1:5305dcb07bf808292eb20a881af1f8a6ee66af53064c6f60413eb1a060940ba4'; do
+            tag="${entry%%:*}"
+            expected="${entry#*:}"
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "Masarefy-$tag.apk" \
+                --dir "$RUNNER_TEMP/prior"
+              echo "$expected  $RUNNER_TEMP/prior/Masarefy-$tag.apk" | sha256sum --check
+              gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            fi
+          done
+          if [ "$same_new_release" -eq 0 ]; then
+            if gh release view v1.0.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release delete v1.0.0 --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            fi
+            # A pre-existing leftover source tag must not point at an old release.
+            if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v1.0.0" >/dev/null 2>&1; then
+              gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/v1.0.0"
+            fi
+          fi
+          echo "ALREADY_PUBLISHED=$same_new_release" >> "$GITHUB_ENV"
+
+      - name: Publish v1.0.0 under the NEW certificate only
+        if: env.ALREADY_PUBLISHED == '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/new-release/RELEASE_NOTES.md" <<'RELEASE_NOTES'
+          مصاريفي v1.0.0 — أول إصدار بالتوقيع الجديد
+
+          بداية جديدة لمصاريفي، تشمل تسجيل المصروفات والإيرادات، الميزانيات والتقارير، الأهداف والالتزامات، PIN والبصمة، النسخ الاحتياطي المشفر والمساعد المالي المحلي.
+          تم تحسين قراءة المعاملات والأرقام والفلاتر والتقارير وتجربة الشاشات الصغيرة.
+
+          تحذير للمستخدمين السابقين: النسخة الجديدة موقّعة بمفتاح مختلف، ولن تُثبت كتحديث مباشر فوق الإصدارات القديمة. صدّر نسخة احتياطية من تطبيقك القديم قبل حذفه، ثم ثبّت النسخة الجديدة واستعد البيانات.
+          RELEASE_NOTES
+          cd "$RUNNER_TEMP/new-release"
+          gh release create v1.0.0 Masarefy-v1.0.0.apk Masarefy-v1.0.0.apk.sha256 \
+            --repo "$GITHUB_REPOSITORY" --title 'مصاريفي v1.0.0 — إصدار أول جديد' \
+            --notes-file RELEASE_NOTES.md --latest
+
+      - name: Independently verify published first release and retired old versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/public-verify"
+          gh release download v1.0.0 --repo "$GITHUB_REPOSITORY" \
+            --pattern 'Masarefy-v1.0.0.apk' --pattern 'Masarefy-v1.0.0.apk.sha256' \
+            --dir "$RUNNER_TEMP/public-verify"
+          (cd "$RUNNER_TEMP/public-verify" && sha256sum --check Masarefy-v1.0.0.apk.sha256)
+          echo "$APK_SHA256  $RUNNER_TEMP/public-verify/Masarefy-v1.0.0.apk" | sha256sum --check
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs \
+            "$RUNNER_TEMP/public-verify/Masarefy-v1.0.0.apk" |
+            grep -Fi 'Signer #1 certificate SHA-256 digest: fad87f51fe359d06837c915c20f044b1311fea600643e1726649da3f1243e155'
+          for tag in v1.0.1 v1.0.2; do
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              echo "Old release $tag was not removed" >&2
+              exit 1
+            fi
+          done
+          echo 'First new v1.0.0 publicly verified; old public releases removed.' >> "$GITHUB_STEP_SUMMARY"
