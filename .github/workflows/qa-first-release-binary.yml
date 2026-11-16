@@ -81,6 +81,12 @@ jobs:
           name: Masarefy-v1.0.0-Android14-first-launch-QA
           path: |
             ${{ runner.temp }}/qa/first-launch.png
+            ${{ runner.temp }}/qa/first-launch-after-45s.png
+            ${{ runner.temp }}/qa/qa-view.xml
+            ${{ runner.temp }}/qa/activity-top.txt
+            ${{ runner.temp }}/qa/window-focus.txt
+            ${{ runner.temp }}/qa/gfxinfo.txt
+            ${{ runner.temp }}/qa/logcat.txt
             ${{ runner.temp }}/verified-cert.txt
           if-no-files-found: warn
           retention-days: 14
