@@ -6,10 +6,10 @@ test -s "$APK"
 adb wait-for-device
 
 # Test only the public signed binary. No private source/key/data access.
-adb shell pm list packages com.masarefy.app | grep -qv 'package:com.masarefy.app' || {
+if adb shell pm list packages com.masarefy.app | grep -qFx 'package:com.masarefy.app'; then
   echo 'A prior install is unexpectedly present on the clean emulator' >&2
   exit 1
-}
+fi
 adb install --no-streaming "$APK"
 adb shell am start -n com.masarefy.app/.MainActivity
 sleep 12
