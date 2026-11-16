@@ -66,39 +66,26 @@ jobs:
           "$TOOLS/aapt" dump badging "$APK" |
             grep -F "package: name='com.masarefy.app' versionCode='1' versionName='1.0.0'"
 
-      - name: Retire old v1.0.0/v1.0.1/v1.0.2 releases only after new APK passes all checks
+      - name: Resolve conflicting old v1.0.0 ONLY; keep v1.0.1/v1.0.2 downloadable as safety net
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/prior"
           same_new_release=0
           if gh release view v1.0.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release download v1.0.0 --repo "$GITHUB_REPOSITORY" --pattern 'Masarefy-v1.0.0.apk' \
-              --dir "$RUNNER_TEMP/prior"
-            digest="$(sha256sum "$RUNNER_TEMP/prior/Masarefy-v1.0.0.apk" | cut -d' ' -f1)"
-            if [ "$digest" = "$APK_SHA256" ]; then
+            gh release download v1.0.0 --repo "$GITHUB_REPOSITORY" \
+              --pattern 'Masarefy-v1.0.0.apk' --dir "$RUNNER_TEMP/prior"
+            old_digest="$(sha256sum "$RUNNER_TEMP/prior/Masarefy-v1.0.0.apk" | cut -d' ' -f1)"
+            if [ "$old_digest" = "$APK_SHA256" ]; then
               same_new_release=1
-            elif [ "$digest" != 'eae3f7fda155c189d2c70132db21fa34beed8057c5edf79e3a7d22747693b70b' ]; then
-              echo 'Existing v1.0.0 is neither the verified old nor the new release; refusing deletion.' >&2
+            elif [ "$old_digest" = 'eae3f7fda155c189d2c70132db21fa34beed8057c5edf79e3a7d22747693b70b' ]; then
+              gh release delete v1.0.0 --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            else
+              echo 'v1.0.0 is not the known old or verified new APK; refusing deletion.' >&2
               exit 1
             fi
           fi
-          for entry in 'v1.0.2:8aa89bcd47225bbb2b8895752a09185f6bb84466678b7005beb44e4a12a2b3be' \
-                       'v1.0.1:5305dcb07bf808292eb20a881af1f8a6ee66af53064c6f60413eb1a060940ba4'; do
-            tag="${entry%%:*}"
-            expected="${entry#*:}"
-            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              gh release download "$tag" --repo "$GITHUB_REPOSITORY" --pattern "Masarefy-$tag.apk" \
-                --dir "$RUNNER_TEMP/prior"
-              echo "$expected  $RUNNER_TEMP/prior/Masarefy-$tag.apk" | sha256sum --check
-              gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
-            fi
-          done
           if [ "$same_new_release" -eq 0 ]; then
-            if gh release view v1.0.0 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              gh release delete v1.0.0 --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
-            fi
-            # A pre-existing leftover source tag must not point at an old release.
             if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/v1.0.0" >/dev/null 2>&1; then
               gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/v1.0.0"
             fi
@@ -122,6 +109,38 @@ jobs:
           gh release create v1.0.0 Masarefy-v1.0.0.apk Masarefy-v1.0.0.apk.sha256 \
             --repo "$GITHUB_REPOSITORY" --title 'مصاريفي v1.0.0 — إصدار أول جديد' \
             --notes-file RELEASE_NOTES.md --latest
+
+      - name: Verify that NEW v1.0.0 is publicly downloadable BEFORE deleting other releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/first-published"
+          gh release download v1.0.0 --repo "$GITHUB_REPOSITORY" \
+            --pattern 'Masarefy-v1.0.0.apk' --pattern 'Masarefy-v1.0.0.apk.sha256' \
+            --dir "$RUNNER_TEMP/first-published"
+          (cd "$RUNNER_TEMP/first-published" && sha256sum --check Masarefy-v1.0.0.apk.sha256)
+          echo "$APK_SHA256  $RUNNER_TEMP/first-published/Masarefy-v1.0.0.apk" | sha256sum --check
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs \
+            "$RUNNER_TEMP/first-published/Masarefy-v1.0.0.apk" |
+            grep -Fi 'Signer #1 certificate SHA-256 digest: fad87f51fe359d06837c915c20f044b1311fea600643e1726649da3f1243e155'
+          "$ANDROID_HOME/build-tools/36.0.0/aapt" dump badging "$RUNNER_TEMP/first-published/Masarefy-v1.0.0.apk" |
+            grep -F "package: name='com.masarefy.app' versionCode='1' versionName='1.0.0'"
+
+      - name: Safely remove v1.0.1 and v1.0.2 only after new v1.0.0 passed public download and signature checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          for entry in 'v1.0.2:8aa89bcd47225bbb2b8895752a09185f6bb84466678b7005beb44e4a12a2b3be' \
+                       'v1.0.1:5305dcb07bf808292eb20a881af1f8a6ee66af53064c6f60413eb1a060940ba4'; do
+            tag="${entry%%:*}"
+            expected="${entry#*:}"
+            if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+              gh release download "$tag" --repo "$GITHUB_REPOSITORY" \
+                --pattern "Masarefy-$tag.apk" --dir "$RUNNER_TEMP/prior"
+              echo "$expected  $RUNNER_TEMP/prior/Masarefy-$tag.apk" | sha256sum --check
+              gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag
+            fi
+          done
 
       - name: Independently verify published first release and retired old versions
         shell: bash
