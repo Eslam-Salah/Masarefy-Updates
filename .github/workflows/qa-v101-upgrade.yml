@@ -1,0 +1,117 @@
+name: Masarefy v1.0.1 signed in-place upgrade QA (Android 14 KVM)
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/qa-payload/v101-signed-download.txt']
+
+permissions:
+  contents: read
+
+jobs:
+  upgrade-smoke:
+    if: github.repository == 'Eslam-Salah/Masarefy-Updates'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read SHA-pinned trusted signed APK artifact handoff
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t payload < .github/qa-payload/v101-signed-download.txt
+          test "${#payload[@]}" -eq 2
+          [[ "${payload[0]}" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          [[ "${payload[1]}" == https://sdmntpritalynorth.oaiusercontent.com/files/* ]] || {
+            echo 'Untrusted signed upgrade download URL' >&2
+            exit 1
+          }
+          echo "EXPECTED_NEW_SHA=${payload[0]}" >> "$GITHUB_ENV"
+          echo "SIGNED_ARCHIVE_URL=${payload[1]}" >> "$GITHUB_ENV"
+
+      - name: Download official first release and exact new signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/qa-v101"
+          curl --fail --location --silent --show-error --retry 3 --max-time 180 \
+            'https://github.com/Eslam-Salah/Masarefy-Updates/releases/download/v1.0.0/Masarefy-v1.0.0.apk' \
+            -o "$RUNNER_TEMP/qa-v101/Masarefy-v1.0.0.apk"
+          echo '478f1aec9ef9c058530a7843f8abc0a9fbc7222442e5f14f578e4d2e837d0369  '"$RUNNER_TEMP/qa-v101/Masarefy-v1.0.0.apk" | sha256sum --check
+          curl --fail --location --silent --show-error --retry 3 --max-time 180 \
+            "$SIGNED_ARCHIVE_URL" -o "$RUNNER_TEMP/qa-v101/signed.zip"
+          unzip -tqq "$RUNNER_TEMP/qa-v101/signed.zip"
+          test "$(unzip -Z1 "$RUNNER_TEMP/qa-v101/signed.zip" | wc -l)" -eq 2
+          unzip -Z1 "$RUNNER_TEMP/qa-v101/signed.zip" | grep -Fx 'Masarefy-v1.0.1.apk'
+          unzip -Z1 "$RUNNER_TEMP/qa-v101/signed.zip" | grep -Fx 'Masarefy-v1.0.1.apk.sha256'
+          unzip -qq "$RUNNER_TEMP/qa-v101/signed.zip" -d "$RUNNER_TEMP/qa-v101"
+          (cd "$RUNNER_TEMP/qa-v101" && sha256sum --check Masarefy-v1.0.1.apk.sha256)
+          echo "$EXPECTED_NEW_SHA  $RUNNER_TEMP/qa-v101/Masarefy-v1.0.1.apk" | sha256sum --check
+
+      - name: Validate BOTH APK versions and exact SAME signing certificate
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager 'build-tools;36.0.0' > /dev/null
+          TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          for entry in 'Masarefy-v1.0.0.apk:1:1.0.0' 'Masarefy-v1.0.1.apk:2:1.0.1'; do
+            name="${entry%%:*}"
+            remaining="${entry#*:}"
+            code="${remaining%%:*}"
+            version="${remaining#*:}"
+            APK="$RUNNER_TEMP/qa-v101/$name"
+            "$TOOLS/apksigner" verify --verbose --print-certs "$APK" |
+              grep -Fi 'Signer #1 certificate SHA-256 digest: fad87f51fe359d06837c915c20f044b1311fea600643e1726649da3f1243e155'
+            "$TOOLS/aapt" dump badging "$APK" |
+              grep -F "package: name='com.masarefy.app' versionCode='$code' versionName='$version'"
+          done
+
+      - name: Enable Linux KVM acceleration (refuse unreliable software emulation)
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -e /dev/kvm
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo chmod a+rw /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+
+      - name: Test real published v1.0.0 updated in place to v1.0.1 on Android 14
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          profile: pixel_5
+          disable-animations: true
+          disable-linux-hw-accel: false
+          emulator-boot-timeout: 1200
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash .github/scripts/qa-v101-upgrade.sh
+
+      - name: Preserve signed upgrade smoke-test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Masarefy-v101-Android14-SAME-KEY-UPGRADE-QA
+          path: |
+            ${{ runner.temp }}/qa-v101/before-upgrade-version.txt
+            ${{ runner.temp }}/qa-v101/after-upgrade-version.txt
+            ${{ runner.temp }}/qa-v101/upgrade-first-launch.png
+            ${{ runner.temp }}/qa-v101/upgrade-after-45s.png
+            ${{ runner.temp }}/qa-v101/qa-upgrade-view.xml
+            ${{ runner.temp }}/qa-v101/window-focus.txt
+            ${{ runner.temp }}/qa-v101/logcat.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Record upgrade gate success
+        if: success()
+        shell: bash
+        run: |
+          echo 'PASS: signed v1.0.0 -> v1.0.1 Build 2 installed without uninstalling, data marker preserved and visible UI ANR-free.' >> "$GITHUB_STEP_SUMMARY"
+          echo "New APK SHA256: $EXPECTED_NEW_SHA" >> "$GITHUB_STEP_SUMMARY"
