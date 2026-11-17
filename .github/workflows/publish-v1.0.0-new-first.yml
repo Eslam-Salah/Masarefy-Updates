@@ -8,6 +8,7 @@ on:
 
 permissions:
   contents: write
+  actions: read
 
 jobs:
   publish-first-release:
@@ -65,6 +66,32 @@ jobs:
           grep -Fi 'Signer #1 certificate SHA-256 digest: fad87f51fe359d06837c915c20f044b1311fea600643e1726649da3f1243e155' "$RUNNER_TEMP/new-cert.txt"
           "$TOOLS/aapt" dump badging "$APK" |
             grep -F "package: name='com.masarefy.app' versionCode='1' versionName='1.0.0'"
+
+      - name: Require successful strict Android first-launch QA on the SAME signed APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s .github/qa-payload/first-v100-download.txt
+          test "$(head -n1 .github/qa-payload/first-v100-download.txt)" = "$APK_SHA256"
+          QA_JSON="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/qa-first-release-binary.yml/runs?branch=main&per_page=1")"
+          QA_STATE="$(printf '%s' "$QA_JSON" | jq -r '.workflow_runs[0].conclusion // ""')"
+          QA_SHA="$(printf '%s' "$QA_JSON" | jq -r '.workflow_runs[0].head_sha // ""')"
+          test "$QA_STATE" = success || {
+            echo 'Latest signed APK Android QA did not pass; keep all existing Releases.' >&2
+            exit 1
+          }
+          [[ "$QA_SHA" =~ ^[0-9a-f]{40}$ ]]
+          QA_PINNED_SHA="$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/qa-payload/first-v100-download.txt?ref=$QA_SHA" --jq '.content' | base64 --decode | head -n1)"
+          test "$QA_PINNED_SHA" = "$APK_SHA256" || {
+            echo 'The passing QA did not test this exact signed APK.' >&2
+            exit 1
+          }
+          QA_SCRIPT="$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/scripts/qa-first-install.sh?ref=$QA_SHA" --jq '.content' | base64 --decode)"
+          grep -Fq 'FAIL: Android system/app ANR dialog' <<< "$QA_SCRIPT" || {
+            echo 'Passing QA did not include strict ANR-dialog assertion.' >&2
+            exit 1
+          }
+          echo "Verified strict QA success on signed APK $APK_SHA256 (run commit $QA_SHA)."
 
       - name: Resolve conflicting old v1.0.0 ONLY; keep v1.0.1/v1.0.2 downloadable as safety net
         shell: bash
