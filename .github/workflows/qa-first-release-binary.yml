@@ -62,13 +62,15 @@ jobs:
           grep -Fi 'Signer #1 certificate SHA-256 digest: fad87f51fe359d06837c915c20f044b1311fea600643e1726649da3f1243e155' "$RUNNER_TEMP/verified-cert.txt"
           "$TOOLS/aapt" dump badging "$APK" | grep -F "package: name='com.masarefy.app' versionCode='1' versionName='1.0.0'"
 
-      - name: Install, start and screenshot new app on clean Android 14 emulator
+      - name: Install, start and screenshot new app on clean Android 13 emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 34
+          api-level: 33
           target: default
           arch: x86_64
-          profile: pixel_5
+          profile: pixel_2
+          ram-size: 4096M
+          heap-size: 512M
           disable-animations: true
           emulator-boot-timeout: 1200
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
@@ -78,7 +80,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Masarefy-v1.0.0-Android14-first-launch-QA
+          name: Masarefy-v1.0.0-Android13-first-launch-QA
           path: |
             ${{ runner.temp }}/qa/first-launch.png
             ${{ runner.temp }}/qa/first-launch-after-45s.png
@@ -95,5 +97,5 @@ jobs:
         if: success()
         shell: bash
         run: |
-          printf '%s\n' 'PUBLIC BINARY QA PASS: clean Android 14 install, live app process, screenshot, version/build/certificate/hash.' >> "$GITHUB_STEP_SUMMARY"
+          printf '%s\n' 'PUBLIC BINARY QA PASS: clean Android 13 install, live app process, screenshot, version/build/certificate/hash.' >> "$GITHUB_STEP_SUMMARY"
           printf 'APK SHA-256: %s\n' "$APK_SHA" >> "$GITHUB_STEP_SUMMARY"
