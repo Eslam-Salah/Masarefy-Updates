@@ -1,4 +1,4 @@
-name: Publish verified Masarefy v1.0.2 Build 3 upgrade (keep v1.0.0)
+name: Publish verified Masarefy v1.0.2 Build 3 upgrade (keep v1.0.1)
 
 on:
   push:
@@ -67,7 +67,7 @@ jobs:
           QA_RESULT="$(printf '%s' "$QA_JSON" | jq -r '.workflow_runs[0].conclusion // ""')"
           QA_SHA="$(printf '%s' "$QA_JSON" | jq -r '.workflow_runs[0].head_sha // ""')"
           test "$QA_RESULT" = success || {
-            echo 'Strict real v1.0.0-to-v1.0.2 Android upgrade QA is not successful; no publish.' >&2
+            echo 'Strict real v1.0.1-to-v1.0.2 Android upgrade QA is not successful; no publish.' >&2
             exit 1
           }
           [[ "$QA_SHA" =~ ^[a-f0-9]{40}$ ]]
@@ -93,7 +93,7 @@ jobs:
           set -euo pipefail
           OLD_SHA="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v1.0.1" --jq '.assets[] | select(.name == "Masarefy-v1.0.1.apk") | .digest')"
           test "$OLD_SHA" = 'sha256:b121f209f472e9ee1700b86a4508d81c1c6566ac48256218cca7911a8a3070aa' || {
-            echo 'Existing v1.0.0 public baseline changed unexpectedly; refusing publication.' >&2
+            echo 'Existing v1.0.1 public baseline changed unexpectedly; refusing publication.' >&2
             exit 1
           }
           if gh release view v1.0.2 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
@@ -101,7 +101,7 @@ jobs:
             exit 1
           fi
 
-      - name: Publish new v1.0.2 WITHOUT removing first stable v1.0.0
+      - name: Publish new v1.0.2 WITHOUT removing previous stable v1.0.1
         shell: bash
         run: |
           set -euo pipefail
@@ -136,5 +136,5 @@ jobs:
             grep -Fi 'Signer #1 certificate SHA-256 digest: fad87f51fe359d06837c915c20f044b1311fea600643e1726649da3f1243e155'
           "$TOOLS/aapt" dump badging "$RUNNER_TEMP/recheck-v102/Masarefy-v1.0.2.apk" |
             grep -F "package: name='com.masarefy.app' versionCode='3' versionName='1.0.2'"
-          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v1.0.1" --jq .tag_name)" = 'v1.0.0'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v1.0.1" --jq .tag_name)" = 'v1.0.1'
           echo 'PASS: v1.0.2 latest, same signer, Build 3, signed in-place upgrade QA and v1.0.1 preserved.' >> "$GITHUB_STEP_SUMMARY"
