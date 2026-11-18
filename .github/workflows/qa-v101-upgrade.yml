@@ -54,7 +54,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sdkmanager 'build-tools;36.0.0' > /dev/null
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -1)"
+          test -n "$SDKMANAGER" && test -x "$SDKMANAGER" || { echo 'Android SDK manager unavailable' >&2; exit 1; }
+          "$SDKMANAGER" 'build-tools;36.0.0'
           TOOLS="$ANDROID_HOME/build-tools/36.0.0"
           for entry in 'Masarefy-v1.0.0.apk:1:1.0.0' 'Masarefy-v1.0.1.apk:2:1.0.1'; do
             name="${entry%%:*}"
