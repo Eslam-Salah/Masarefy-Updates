@@ -115,5 +115,5 @@ jobs:
         if: success()
         shell: bash
         run: |
-          echo 'PASS: signed v1.0.0 -> v1.0.2 Build 3 installed without uninstalling, data marker preserved and visible UI ANR-free.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'PASS: signed v1.0.1 -> v1.0.2 Build 3 installed without uninstalling, data marker preserved and visible UI ANR-free.' >> "$GITHUB_STEP_SUMMARY"
           echo "New APK SHA256: $EXPECTED_NEW_SHA" >> "$GITHUB_STEP_SUMMARY"
