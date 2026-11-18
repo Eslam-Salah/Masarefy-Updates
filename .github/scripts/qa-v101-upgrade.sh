@@ -19,7 +19,8 @@ fi
 # Install real published first release, not a locally rebuilt approximation.
 adb install --no-streaming "$OLD"
 adb shell pm list packages com.masarefy.app | grep -qFx 'package:com.masarefy.app'
-adb shell dumpsys package com.masarefy.app | grep -m1 'versionCode=1' > "$QA/before-upgrade-version.txt"
+adb shell dumpsys package com.masarefy.app > "$QA/before-upgrade-package.txt"
+grep -m1 'versionCode=1' "$QA/before-upgrade-package.txt" > "$QA/before-upgrade-version.txt"
 adb shell am start -n com.masarefy.app/.MainActivity
 sleep 12
 adb shell pidof com.masarefy.app > "$QA/before-upgrade-pid.txt"
@@ -37,7 +38,8 @@ adb logcat -c || true
 
 # -r MUST install in place: no uninstall, no clear-data, no fresh-install fallback.
 adb install -r --no-streaming "$NEW"
-adb shell dumpsys package com.masarefy.app | grep -m1 'versionCode=2' > "$QA/after-upgrade-version.txt"
+adb shell dumpsys package com.masarefy.app > "$QA/after-upgrade-package.txt"
+grep -m1 'versionCode=2' "$QA/after-upgrade-package.txt" > "$QA/after-upgrade-version.txt"
 adb shell 'cat /data/user/0/com.masarefy.app/files/qa-package-upgrade-marker' | grep -Fx 'keep-v100-test-data'
 adb shell am start -n com.masarefy.app/.MainActivity
 sleep 12
