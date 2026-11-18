@@ -70,4 +70,4 @@ if ! grep -Fq 'package="com.masarefy.app"' "$QA/qa-upgrade-view.xml"; then
   exit 1
 fi
 adb shell pidof com.masarefy.app | grep -qE '[0-9]+'
-echo 'PASS: actual published v1.0.2 updated in place to same-signed v1.0.2 Build 4, emulator app-file marker persisted and UI is responsive.'
+echo 'PASS: actual published v1.0.2 updated in place to same-signed v1.0.3 Build 4, emulator app-file marker persisted and UI is responsive.'
