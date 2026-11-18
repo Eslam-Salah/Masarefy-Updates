@@ -12,11 +12,11 @@ adb wait-for-device
 test "$(adb shell getprop sys.boot_completed | tr -d '\r\n ')" = 1
 sleep 18
 if adb shell pm list packages com.masarefy.app | grep -qFx 'package:com.masarefy.app'; then
-  echo 'FAIL: emulator is not clean before installing first release' >&2
+  echo 'FAIL: emulator is not clean before installing previous public release' >&2
   exit 1
 fi
 
-# Install real published first release, not a locally rebuilt approximation.
+# Install real published previous public release, not a locally rebuilt approximation.
 adb install --no-streaming "$OLD"
 adb shell pm list packages com.masarefy.app | grep -qFx 'package:com.masarefy.app'
 adb shell dumpsys package com.masarefy.app > "$QA/before-upgrade-package.txt"
@@ -70,4 +70,4 @@ if ! grep -Fq 'package="com.masarefy.app"' "$QA/qa-upgrade-view.xml"; then
   exit 1
 fi
 adb shell pidof com.masarefy.app | grep -qE '[0-9]+'
-echo 'PASS: actual published v1.0.1 updated in place to same-signed v1.0.2 Build 2, emulator app-file marker persisted and UI is responsive.'
+echo 'PASS: actual published v1.0.1 updated in place to same-signed v1.0.2 Build 3, emulator app-file marker persisted and UI is responsive.'
