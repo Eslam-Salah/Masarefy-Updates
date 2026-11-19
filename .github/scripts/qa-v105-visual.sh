@@ -29,6 +29,63 @@ adb install --no-streaming "$APK"
 adb shell am start -n com.masarefy.app/.MainActivity
 sleep 14
 adb shell pidof com.masarefy.app | grep -qE '[0-9]+'
+
+# App theme is an explicit setting; changing Android night mode alone does NOT
+# test Masarefy's dark theme. Toggle the first appearance switch on the empty emulator.
+if [ "$MODE" = 'dark-large' ]; then
+  timeout 50 adb shell uiautomator dump /sdcard/masarefy-home-before-theme.xml
+  adb pull /sdcard/masarefy-home-before-theme.xml "$QA/home-before-theme.xml" >/dev/null
+  # Use the real accessibility bounds rather than guessed tap coordinates.
+  read -r TAB_X TAB_Y < <(python3 - "$QA/home-before-theme.xml" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+root=ET.parse(sys.argv[1]).getroot()
+nodes=[n for n in root.iter('node') if n.attrib.get('text') == 'الإعدادات']
+if len(nodes) != 1:
+    raise SystemExit('Settings tab not uniquely available in Android UI')
+m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]', nodes[0].attrib['bounds'])
+if not m:
+    raise SystemExit('Invalid settings tab accessibility bounds')
+x1,y1,x2,y2=map(int,m.groups())
+print((x1+x2)//2,(y1+y2)//2)
+PY
+  )
+  adb shell input tap "$TAB_X" "$TAB_Y"
+  sleep 4
+  timeout 50 adb shell uiautomator dump /sdcard/masarefy-settings-before.xml
+  adb pull /sdcard/masarefy-settings-before.xml "$QA/settings-before.xml" >/dev/null
+  # Appearance is the first card in SettingsScreen. Its switch is first in the
+  # accessibility order; refuse to click anything if it cannot be identified.
+  read -r SWITCH_X SWITCH_Y < <(python3 - "$QA/settings-before.xml" <<'PY'
+import re, sys, xml.etree.ElementTree as ET
+root=ET.parse(sys.argv[1]).getroot()
+nodes=list(root.iter('node'))
+if not any(n.attrib.get('text') == 'الوضع الفاتح' for n in nodes):
+    raise SystemExit('Expected initial light appearance switch not shown')
+switches=[n for n in nodes if n.attrib.get('class') == 'android.widget.Switch']
+if not switches:
+    switches=[n for n in nodes if n.attrib.get('checkable') == 'true' and n.attrib.get('clickable') == 'true']
+if not switches:
+    raise SystemExit('Cannot identify the appearance Switch')
+m=re.fullmatch(r'\[(\d+),(\d+)\]\[(\d+),(\d+)\]',switches[0].attrib['bounds'])
+if not m:
+    raise SystemExit('Invalid appearance switch bounds')
+x1,y1,x2,y2=map(int,m.groups())
+print((x1+x2)//2,(y1+y2)//2)
+PY
+  )
+  adb shell input tap "$SWITCH_X" "$SWITCH_Y"
+  sleep 4
+  timeout 50 adb shell uiautomator dump /sdcard/masarefy-settings-dark.xml
+  adb pull /sdcard/masarefy-settings-dark.xml "$QA/settings-dark.xml" >/dev/null
+  grep -Fq 'text="الوضع الداكن"' "$QA/settings-dark.xml" || {
+    echo 'FAIL: app-specific dark theme did not become enabled' >&2
+    exit 1
+  }
+  adb exec-out screencap -p > "$QA/settings-dark.png"
+  adb shell input keyevent KEYCODE_BACK
+  sleep 4
+fi
+
 adb exec-out screencap -p > "$QA/home-first-launch.png"
 test -s "$QA/home-first-launch.png"
 
