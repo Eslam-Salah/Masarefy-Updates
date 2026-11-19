@@ -155,7 +155,7 @@ nodes=list(ET.parse(sys.argv[1]).getroot().iter('node'))
 matches=[n for n in nodes if n.attrib.get('text')==sys.argv[2]]
 if not matches: raise SystemExit('Missing bottom navigation tab')
 def rect(n):
-    vals=list(map(int,re.findall(r'\\d+',n.attrib.get('bounds',''))))
+    vals=list(map(int,re.findall(r'\d+',n.attrib.get('bounds',''))))
     if len(vals)!=4: raise SystemExit('Unexpected Android bounds')
     return vals
 n=max(matches,key=lambda n:rect(n)[1])
@@ -246,7 +246,19 @@ PY
 rm -f "$QA/masarefy.db" "$QA/masarefy.db-wal" "$QA/masarefy.db-shm"
 
 # Safety snapshot must preserve the edited pre-restore state for recovery.
-mapfile -t safety < <(adb shell ls -1 "$backup_dir" | tr -d '\\r' | grep -E '^Masarefy_BeforeRestore_.*\\.mfb
+mapfile -t safety < <(adb shell ls -1 "$backup_dir" | tr -d '\r' | grep -E '^Masarefy_BeforeRestore_.*[.]mfb
+if [ "${#safety[@]}" -lt 1 ]; then
+  echo 'FAIL: no published pre-restore safety backup' >&2
+  exit 1
+fi
+adb pull "$backup_dir/${safety[0]}" "$QA/safety-backup.mfb" >/dev/null
+java .github/scripts/VerifyMasarefyBackup.java "$QA/safety-backup.mfb" "$test_password" 'QACHANGED26' > "$QA/safety-verification.txt"
+cat "$QA/restore-verification.txt"
+cat "$QA/safety-verification.txt"
+rm -f "$QA/safety-backup.mfb"
+unset test_password
+echo 'PASS: restored encrypted backup replaces changed financial data AND pre-restore safety backup decrypts to previous edited state.'
+
  || true)
 if [ "${#safety[@]}" -lt 1 ]; then
   echo 'FAIL: no published pre-restore safety backup' >&2
