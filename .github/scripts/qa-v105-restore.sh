@@ -246,7 +246,7 @@ PY
 rm -f "$QA/masarefy.db" "$QA/masarefy.db-wal" "$QA/masarefy.db-shm"
 
 # Safety snapshot must preserve the edited pre-restore state for recovery.
-mapfile -t safety < <(adb shell ls -1 "$backup_dir" | tr -d '\r' | grep -E '^Masarefy_BeforeRestore_.*[.]mfb
+mapfile -t safety < <(adb shell ls -1 "$backup_dir" | tr -d '\r' | grep -F 'Masarefy_BeforeRestore_' | grep -F '.mfb' || true)
 if [ "${#safety[@]}" -lt 1 ]; then
   echo 'FAIL: no published pre-restore safety backup' >&2
   exit 1
