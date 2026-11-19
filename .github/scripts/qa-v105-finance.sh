@@ -57,10 +57,14 @@ tap_ui "$QA/home-before.xml" 'content-desc' 'إضافة معاملة'
 sleep 3
 dump_ui editor-before
 grep -Fq 'text="إضافة معاملة"' "$QA/editor-before.xml"
+tap_ui "$QA/editor-before.xml" text 'إضافة يدوية'
+sleep 3
+dump_ui editor-form
+grep -Fq 'text="المبلغ"' "$QA/editor-form.xml"
 
 # Exactly one synthetic expense, on an isolated empty emulator.
 # Amount and category are the editor's first two Compose EditText fields.
-tap_ui "$QA/editor-before.xml" edit 0
+tap_ui "$QA/editor-form.xml" edit 0
 adb shell input text '123'
 adb shell input keyevent KEYCODE_BACK
 sleep 2
