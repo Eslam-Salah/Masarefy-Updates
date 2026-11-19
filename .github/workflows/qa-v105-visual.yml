@@ -1,0 +1,101 @@
+name: Masarefy v1.0.5 - signed APK visual QA (Android 14)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/qa-v105-visual.yml'
+      - '.github/scripts/qa-v105-visual.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: masarefy-v105-visual
+  cancel-in-progress: false
+
+jobs:
+  visual:
+    name: Published APK visual smoke - ${{ matrix.mode }}
+    if: github.repository == 'Eslam-Salah/Masarefy-Updates'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mode: light-normal
+            theme: 'no'
+            font_scale: '1.0'
+          - mode: dark-large
+            theme: 'yes'
+            font_scale: '1.5'
+
+    steps:
+      - name: Checkout public QA scripts (do not access private source)
+        uses: actions/checkout@v4
+
+      - name: Download exact published v1.0.5 APK and validate SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error --retry 3 --max-time 180 \
+            'https://github.com/Eslam-Salah/Masarefy-Updates/releases/download/v1.0.5/Masarefy-v1.0.5.apk' \
+            -o "$RUNNER_TEMP/Masarefy-v1.0.5.apk"
+          echo 'b20e2a502cc7a898caa35f8bb827a091caba6cdf602aa4fed146d24a2f927b7d  '"$RUNNER_TEMP/Masarefy-v1.0.5.apk" | sha256sum --check
+
+      - name: Validate SAME signing certificate and Build 6
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -1)"
+          test -n "$SDKMANAGER" && test -x "$SDKMANAGER"
+          "$SDKMANAGER" 'build-tools;36.0.0'
+          TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          APK="$RUNNER_TEMP/Masarefy-v1.0.5.apk"
+          "$TOOLS/apksigner" verify --verbose --print-certs "$APK" |
+            grep -Fi 'Signer #1 certificate SHA-256 digest: fad87f51fe359d06837c915c20f044b1311fea600643e1726649da3f1243e155'
+          "$TOOLS/aapt" dump badging "$APK" |
+            grep -F "package: name='com.masarefy.app' versionCode='6' versionName='1.0.5'"
+
+      - name: Require hardware accelerated Android emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -e /dev/kvm
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo chmod a+rw /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+
+      - name: Capture signed app visuals, inspect foreground UI and ANR
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          profile: pixel_5
+          disable-animations: true
+          disable-linux-hw-accel: false
+          emulator-boot-timeout: 1200
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash .github/scripts/qa-v105-visual.sh ${{ matrix.mode }} ${{ matrix.theme }} ${{ matrix.font_scale }}
+
+      - name: Save screenshots and read-only UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Masarefy-v105-${{ matrix.mode }}-visual-evidence
+          path: ${{ runner.temp }}/qa-v105-ui/${{ matrix.mode }}/**
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Summarize what was and was NOT tested
+        if: success()
+        shell: bash
+        run: |
+          echo "PASS: public v1.0.5 signed APK launched with system theme=${{ matrix.theme }} and font_scale=${{ matrix.font_scale }}, foreground hierarchy and two screenshots saved." >> "$GITHUB_STEP_SUMMARY"
+          echo 'This is read-only visual smoke QA; no finance transactions, actual backup restore, or private device data were exercised.' >> "$GITHUB_STEP_SUMMARY"
