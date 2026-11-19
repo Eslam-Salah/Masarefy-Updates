@@ -58,7 +58,7 @@ jobs:
           test -n "$SDKMANAGER" && test -x "$SDKMANAGER" || { echo 'Android SDK manager unavailable' >&2; exit 1; }
           "$SDKMANAGER" 'build-tools;36.0.0'
           TOOLS="$ANDROID_HOME/build-tools/36.0.0"
-          for entry in 'Masarefy-v1.0.4.apk:4:1.0.4' 'Masarefy-v1.0.5.apk:5:1.0.5'; do
+          for entry in 'Masarefy-v1.0.4.apk:5:1.0.4' 'Masarefy-v1.0.5.apk:6:1.0.5'; do
             name="${entry%%:*}"
             remaining="${entry#*:}"
             code="${remaining%%:*}"
