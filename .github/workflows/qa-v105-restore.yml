@@ -1,0 +1,95 @@
+name: Masarefy v1.0.5 - encrypted restore and safety backup QA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/qa-v105-restore.yml'
+      - '.github/scripts/qa-v105-restore.sh'
+      - '.github/scripts/VerifyMasarefyBackup.java'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  encrypted-restore-smoke:
+    if: github.repository == 'Eslam-Salah/Masarefy-Updates'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - name: Checkout QA scripts
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17 for independent crypto verification
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Get exact official signed v1.0.5 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error --retry 3 --max-time 180 \
+            'https://github.com/Eslam-Salah/Masarefy-Updates/releases/download/v1.0.5/Masarefy-v1.0.5.apk' \
+            -o "$RUNNER_TEMP/Masarefy-v1.0.5.apk"
+          echo 'b20e2a502cc7a898caa35f8bb827a091caba6cdf602aa4fed146d24a2f927b7d  '"$RUNNER_TEMP/Masarefy-v1.0.5.apk" | sha256sum --check
+
+      - name: Check official signature, app identity and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -1)"
+          test -n "$SDKMANAGER" && test -x "$SDKMANAGER"
+          "$SDKMANAGER" 'build-tools;36.0.0'
+          TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          "$TOOLS/apksigner" verify --verbose --print-certs "$RUNNER_TEMP/Masarefy-v1.0.5.apk" |
+            grep -Fi 'Signer #1 certificate SHA-256 digest: fad87f51fe359d06837c915c20f044b1311fea600643e1726649da3f1243e155'
+          "$TOOLS/aapt" dump badging "$RUNNER_TEMP/Masarefy-v1.0.5.apk" |
+            grep -F "package: name='com.masarefy.app' versionCode='6' versionName='1.0.5'"
+
+      - name: Enable KVM for reliable emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -e /dev/kvm
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo chmod a+rw /dev/kvm
+
+      - name: Restore encrypted backup to undo edited expense and verify safety snapshot
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          profile: pixel_5
+          disable-animations: true
+          disable-linux-hw-accel: false
+          emulator-boot-timeout: 1200
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash .github/scripts/qa-v105-restore.sh
+
+      - name: Upload synthetic UI evidence only, never the SQLite DB
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Masarefy-v105-encrypted-restore-evidence
+          path: |
+            ${{ runner.temp }}/qa-v105-restore/*.xml
+            ${{ runner.temp }}/qa-v105-restore/*.png
+            ${{ runner.temp }}/qa-v105-restore/encrypted-backup-verification.txt
+            ${{ runner.temp }}/qa-v105-restore/restore-verification.txt
+            ${{ runner.temp }}/qa-v105-restore/safety-verification.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Record limited coverage
+        if: success()
+        shell: bash
+        run: |
+          echo 'PASS: signed v1.0.5 APK restored encrypted original transaction over edited data and created decryptable pre-restore safety copy.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Synthetic isolated Android14 restore only. Does not prove cross-device recovery, all user data formats or scheduled automatic backups.' >> "$GITHUB_STEP_SUMMARY"
