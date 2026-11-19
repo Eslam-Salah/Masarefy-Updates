@@ -1,0 +1,86 @@
+name: Masarefy v1.0.5 - signed APK finance CRUD and income QA
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/qa-v105-finance-crud.yml'
+      - '.github/scripts/qa-v105-finance-crud.sh'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  signed-finance-crud:
+    if: github.repository == 'Eslam-Salah/Masarefy-Updates'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - name: Checkout QA scripts
+        uses: actions/checkout@v4
+
+      - name: Get exact official signed v1.0.5 release
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error --retry 3 --max-time 180 \
+            'https://github.com/Eslam-Salah/Masarefy-Updates/releases/download/v1.0.5/Masarefy-v1.0.5.apk' \
+            -o "$RUNNER_TEMP/Masarefy-v1.0.5.apk"
+          echo 'b20e2a502cc7a898caa35f8bb827a091caba6cdf602aa4fed146d24a2f927b7d  '"$RUNNER_TEMP/Masarefy-v1.0.5.apk" | sha256sum --check
+
+      - name: Check official signature, app identity and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -1)"
+          test -n "$SDKMANAGER" && test -x "$SDKMANAGER"
+          "$SDKMANAGER" 'build-tools;36.0.0'
+          TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          "$TOOLS/apksigner" verify --verbose --print-certs "$RUNNER_TEMP/Masarefy-v1.0.5.apk" |
+            grep -Fi 'Signer #1 certificate SHA-256 digest: fad87f51fe359d06837c915c20f044b1311fea600643e1726649da3f1243e155'
+          "$TOOLS/aapt" dump badging "$RUNNER_TEMP/Masarefy-v1.0.5.apk" |
+            grep -F "package: name='com.masarefy.app' versionCode='6' versionName='1.0.5'"
+
+      - name: Enable KVM for reliable emulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -e /dev/kvm
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sudo chmod a+rw /dev/kvm
+
+      - name: Create edit delete expense and create income through signed APK; verify Room
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          profile: pixel_5
+          disable-animations: true
+          disable-linux-hw-accel: false
+          emulator-boot-timeout: 1200
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash .github/scripts/qa-v105-finance-crud.sh
+
+      - name: Upload synthetic UI evidence only, never the SQLite DB
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Masarefy-v105-finance-CRUD-evidence
+          path: |
+            ${{ runner.temp }}/qa-v105-finance-crud/*.xml
+            ${{ runner.temp }}/qa-v105-finance-crud/*.png
+            ${{ runner.temp }}/qa-v105-finance-crud/finance-crud-results.txt
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Record limited coverage
+        if: success()
+        shell: bash
+        run: |
+          echo 'PASS: exact official signed v1.0.5 APK edited and deleted an expense and created an income; Room checked after force-stop in each stage.' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Limited to synthetic CRUD and income on emulator, not real-world data, reports, splits, backup/restore, or actual-device QA.' >> "$GITHUB_STEP_SUMMARY"
