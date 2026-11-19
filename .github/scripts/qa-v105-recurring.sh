@@ -98,10 +98,16 @@ grep -Fq 'text="نشطة"' "$QA/recurring-bottom-$n.xml"
 read -r x y < <(python3 - "$QA/recurring-bottom-$n.xml" <<'PY'
 import re,sys,xml.etree.ElementTree as ET
 nodes=list(ET.parse(sys.argv[1]).getroot().iter('node'))
-switches=[n for n in nodes if n.attrib.get('class')=='android.widget.Switch']
-if not switches: switches=[n for n in nodes if n.attrib.get('checkable')=='true' and n.attrib.get('clickable')=='true']
-if len(switches)!=1: raise SystemExit('Expected unique recurring active switch')
-n=switches[0]
+labels=[n for n in nodes if n.attrib.get('text')=='نشطة']
+if len(labels)!=1: raise SystemExit('Recurring active label not uniquely identified')
+switches=[n for n in nodes if n.attrib.get('checkable')=='true' and n.attrib.get('clickable')=='true']
+def cy(n):
+    a=list(map(int,re.findall(r'\d+',n.attrib.get('bounds',''))))
+    if len(a)!=4: raise SystemExit('Malformed accessibility bounds')
+    return (a[1]+a[3])/2
+if not switches: raise SystemExit('Missing checkable active switch')
+n=min(switches,key=lambda sw:abs(cy(sw)-cy(labels[0])))
+assert abs(cy(n)-cy(labels[0]))<90,'No switch adjacent to active label'
 assert n.attrib.get('checked')=='true','Active switch not enabled initially'
 a,b,c,d=map(int,re.findall(r'\d+',n.attrib['bounds']))
 print((a+c)//2,(b+d)//2)
@@ -113,9 +119,15 @@ dump_ui recurring-paused
 python3 - "$QA/recurring-paused.xml" <<'PY'
 import sys,xml.etree.ElementTree as ET
 n=list(ET.parse(sys.argv[1]).getroot().iter('node'))
-sw=[x for x in n if x.attrib.get('class')=='android.widget.Switch']
-if not sw: sw=[x for x in n if x.attrib.get('checkable')=='true' and x.attrib.get('clickable')=='true']
-assert len(sw)==1 and sw[0].attrib.get('checked')=='false', 'Recurring switch was not paused'
+import re
+labels=[x for x in n if x.attrib.get('text')=='نشطة']
+sw=[x for x in n if x.attrib.get('checkable')=='true' and x.attrib.get('clickable')=='true']
+assert len(labels)==1 and len(sw)>0,'Missing recurring switch or label'
+def cy(x):
+    a=list(map(int,re.findall(r'\d+',x.attrib.get('bounds',''))))
+    return (a[1]+a[3])/2
+chosen=min(sw,key=lambda x:abs(cy(x)-cy(labels[0])))
+assert abs(cy(chosen)-cy(labels[0]))<90 and chosen.attrib.get('checked')=='false', 'Recurring switch was not paused'
 PY
 grep -Fq 'text="إضافة المعاملة المتكررة"' "$QA/recurring-paused.xml"
 adb exec-out screencap -p > "$QA/recurring-paused.png"
