@@ -121,7 +121,7 @@ jobs:
           NOTES
           cd "$RUNNER_TEMP/new-v105"
           gh release create v1.0.5 Masarefy-v1.0.5.apk Masarefy-v1.0.5.apk.sha256 \
-            --repo "$GITHUB_REPOSITORY" --title 'مصاريفي v1.0.5 — تحسين نافذة التحديثات' \
+            --repo "$GITHUB_REPOSITORY" --title 'مصاريفي v1.0.5 — حماية المعاملات والنسخ الاحتياطية' \
             --notes-file RELEASE_NOTES.md --latest
 
       - name: Independently download published upgrade and validate identity/digest
