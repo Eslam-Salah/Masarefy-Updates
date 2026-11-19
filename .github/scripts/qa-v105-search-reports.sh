@@ -119,7 +119,15 @@ assert 'QA2026' in txt and 'QAINCOME26' in txt, 'Both synthetic transactions mus
 PY
 
 # Search should match the expense category only.
-tap_ui "$QA/both-transactions.xml" text 'بحث داخل السجل المعروض'
+# List scroll is preserved after adding an item; return to the search toolbar.
+for attempt in 1 2 3 4 5; do
+  dump_ui "search-ready-$attempt"
+  if grep -Fq 'text="بحث داخل السجل المعروض"' "$QA/search-ready-$attempt.xml"; then break; fi
+  adb shell input swipe 550 750 550 1670 450
+  sleep 2
+done
+grep -Fq 'text="بحث داخل السجل المعروض"' "$QA/search-ready-$attempt.xml"
+tap_ui "$QA/search-ready-$attempt.xml" text 'بحث داخل السجل المعروض'
 adb shell input text 'QA2026'
 adb shell input keyevent KEYCODE_BACK
 sleep 4
