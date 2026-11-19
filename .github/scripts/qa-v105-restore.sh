@@ -259,16 +259,3 @@ rm -f "$QA/safety-backup.mfb"
 unset test_password
 echo 'PASS: restored encrypted backup replaces changed financial data AND pre-restore safety backup decrypts to previous edited state.'
 
- || true)
-if [ "${#safety[@]}" -lt 1 ]; then
-  echo 'FAIL: no published pre-restore safety backup' >&2
-  exit 1
-fi
-adb pull "$backup_dir/${safety[0]}" "$QA/safety-backup.mfb" >/dev/null
-java .github/scripts/VerifyMasarefyBackup.java "$QA/safety-backup.mfb" "$test_password" 'QACHANGED26' > "$QA/safety-verification.txt"
-cat "$QA/restore-verification.txt"
-cat "$QA/safety-verification.txt"
-rm -f "$QA/safety-backup.mfb"
-unset test_password
-echo 'PASS: restored encrypted backup replaces changed financial data AND pre-restore safety backup decrypts to previous edited state.'
-
