@@ -34,15 +34,16 @@ public class VerifyMasarefyBackup {
     } finally { Arrays.fill(keyBytes,(byte)0); }
   }
   public static void main(String[] args) throws Exception {
-    if (args.length!=2) throw new IllegalArgumentException("Expected file and synthetic-only password");
+    if (args.length!=2 && args.length!=3) throw new IllegalArgumentException("Expected file, synthetic-only password and optional synthetic category marker");
+    String marker=args.length==3 ? args[2] : "QA2026";
     byte[] raw=Files.readAllBytes(Path.of(args[0]));
     if (raw.length<100) throw new AssertionError("Backup file too small");
     String encryptedText=new String(raw,StandardCharsets.ISO_8859_1);
-    if (encryptedText.contains("QA2026")) throw new AssertionError("Transaction category leaked in ciphertext");
+    if (encryptedText.contains(marker)) throw new AssertionError("Transaction category leaked in ciphertext");
     char[] password=args[1].toCharArray();
     byte[] plain=decrypt(raw,password);
     String json=new String(plain,StandardCharsets.UTF_8);
-    if (!json.startsWith("{") || !json.contains("QA2026") || !json.contains("transactions"))
+    if (!json.startsWith("{") || !json.contains(marker) || !json.contains("transactions"))
       throw new AssertionError("Decrypted backup missing synthetic transaction");
     boolean rejected=false;
     try { decrypt(raw,"WrongPasswordForQATest".toCharArray()); }
