@@ -181,10 +181,21 @@ dump_ui period-selected
 tap_ui "$QA/period-selected.xml" text 'تطبيق'
 sleep 4
 dump_ui period-filtered
-python3 - "$QA/period-filtered.xml" "$QA/advanced-filter-results.txt" <<'PY'
+python3 - "$QA/period-filtered.xml" <<'PY'
 import sys,xml.etree.ElementTree as E
 txt=[n.attrib.get('text','') for n in E.parse(sys.argv[1]).getroot().iter('node')]
-assert 'QA2026' in txt and 'QAINCOME26' in txt,'7-day preset incorrectly excluded today'
-open(sys.argv[2],'w').write('PASS: exact signed APK advanced category filter, reset, and last-7-days preset; both synthetic current-day transactions retained.\n')
+assert 'QAINCOME26' in txt,'Expected income on first visible viewport'
+assert '2 من 2 معاملة' in txt,'7-day preset did not retain both current-day transactions'
+assert any('الفترة: ' in s and ' → ' in s for s in txt),'Active date range indicator absent'
 PY
+# LazyColumn virtualizes offscreen rows. Scroll to the second expense instead
+# of assuming all matching transactions appear in one viewport hierarchy.
+for attempt in 1 2 3; do
+  adb shell input swipe 520 1700 520 690 440
+  sleep 2
+  dump_ui "period-scrolled-$attempt"
+  if grep -Fq 'text="QA2026"' "$QA/period-scrolled-$attempt.xml"; then break; fi
+done
+grep -Fq 'text="QA2026"' "$QA/period-scrolled-$attempt.xml"
+printf '%s\n' 'PASS: category filtering, reset, and last-7-days range preserved both current-day transactions across scrollable viewports.' > "$QA/advanced-filter-results.txt"
 cat "$QA/advanced-filter-results.txt"
