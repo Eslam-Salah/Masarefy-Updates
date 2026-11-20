@@ -115,7 +115,7 @@ tap_ui "$QA/after-split-save.xml" content-desc 'تعديل'
 sleep 4
 dump_ui edit-original
 grep -Fq 'text="تعديل المعاملة"' "$QA/edit-original.xml"
-tap_ui "$QA/edit-original.xml" text 'تقسيم المبلغ'
+tap_ui "$QA/edit-original.xml" text 'المبلغ موزع على 2 بنود'
 sleep 4
 dump_ui split-edit-before
 
