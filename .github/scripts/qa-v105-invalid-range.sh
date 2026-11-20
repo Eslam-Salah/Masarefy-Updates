@@ -174,7 +174,8 @@ dump_ui invalid-reset
 python3 - "$QA/invalid-reset.xml" "$QA/invalid-range-results.txt" <<'PY'
 import sys, xml.etree.ElementTree as E
 txt=[n.attrib.get('text','') for n in E.parse(sys.argv[1]).getroot().iter('node')]
-assert '2 من 2 معاملة' in txt, f'Invalid inputs hid transactions after reset: {txt!r}'
+assert 'QA2026' in txt and 'QAINCOME26' in txt, f'Invalid inputs hid saved transactions after reset: {txt!r}'
+assert '2 معاملة' in txt, 'Expected two visible month transactions after clearing all filters'
 open(sys.argv[2],'w').write(
     'PASS: invalid 2026-02-31 and reversed 2025-11-20..2025-11-19 were rejected in advanced date dialog, and reset kept both synthetic transactions.\n'
 )
