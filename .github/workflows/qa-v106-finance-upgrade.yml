@@ -1,0 +1,110 @@
+name: Masarefy v1.0.6 - actual signed financial-data in-place upgrade (Android 14)
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/qa-payload/v106-signed-download.txt']
+
+permissions:
+  contents: read
+
+jobs:
+  upgrade:
+    name: Signed v1.0.5 to v1.0.6 finance database retention on isolated Android emulator
+    if: github.repository == 'Eslam-Salah/Masarefy-Updates'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read pinned candidate signed package metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t payload < .github/qa-payload/v106-signed-download.txt
+          test "${#payload[@]}" -eq 2
+          [[ "${payload[0]}" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          [[ "${payload[1]}" == https://sdmntpritalynorth.oaiusercontent.com/files/* ]] || {
+            echo 'Unsigned or untrusted candidate URL' >&2
+            exit 1
+          }
+          echo "EXPECTED_NEW_SHA=${payload[0]}" >> "$GITHUB_ENV"
+          echo "SIGNED_ARCHIVE_URL=${payload[1]}" >> "$GITHUB_ENV"
+
+      - name: Download exact original public Build 6 and signed candidate Build 7
+        shell: bash
+        run: |
+          set -euo pipefail
+          QA="$RUNNER_TEMP/qa-v106"
+          mkdir -p "$QA"
+          curl --fail --location --silent --show-error --retry 3 --max-time 180 \
+            'https://github.com/Eslam-Salah/Masarefy-Updates/releases/download/v1.0.5/Masarefy-v1.0.5.apk' \
+            -o "$QA/Masarefy-v1.0.5.apk"
+          echo 'b20e2a502cc7a898caa35f8bb827a091caba6cdf602aa4fed146d24a2f927b7d  '"$QA/Masarefy-v1.0.5.apk" | sha256sum --check
+          curl --fail --location --silent --show-error --retry 3 --max-time 180 \
+            "$SIGNED_ARCHIVE_URL" -o "$QA/signed-artifact.zip"
+          unzip -tqq "$QA/signed-artifact.zip"
+          test "$(unzip -Z1 "$QA/signed-artifact.zip" | wc -l)" -eq 2
+          unzip -Z1 "$QA/signed-artifact.zip" | grep -Fx 'Masarefy-v1.0.6.apk'
+          unzip -Z1 "$QA/signed-artifact.zip" | grep -Fx 'Masarefy-v1.0.6.apk.sha256'
+          unzip -qq "$QA/signed-artifact.zip" -d "$QA"
+          (cd "$QA" && sha256sum --check Masarefy-v1.0.6.apk.sha256)
+          echo "$EXPECTED_NEW_SHA  $QA/Masarefy-v1.0.6.apk" | sha256sum --check
+
+      - name: Verify both signing certificates and package identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -1)"
+          test -n "$SDKMANAGER"
+          "$SDKMANAGER" 'build-tools;36.0.0'
+          TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          for entry in 'Masarefy-v1.0.5.apk:6:1.0.5' 'Masarefy-v1.0.6.apk:7:1.0.6'; do
+            apk="${entry%%:*}"
+            rem="${entry#*:}"
+            code="${rem%%:*}"
+            ver="${rem#*:}"
+            path="$RUNNER_TEMP/qa-v106/$apk"
+            "$TOOLS/apksigner" verify --verbose --print-certs "$path" |
+              grep -Fi 'Signer #1 certificate SHA-256 digest: fad87f51fe359d06837c915c20f044b1311fea600643e1726649da3f1243e155'
+            "$TOOLS/aapt" dump badging "$path" |
+              grep -F "package: name='com.masarefy.app' versionCode='$code' versionName='$ver'"
+          done
+
+      - name: Require real Android virtualization
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -e /dev/kvm
+          sudo chmod a+rw /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+
+      - name: Install public v1.0.5, populate real finance DB, then upgrade in place to v1.0.6
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          profile: pixel_5
+          disable-animations: true
+          emulator-boot-timeout: 1200
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim
+          script: bash .github/scripts/qa-v106-finance-upgrade.sh
+
+      - name: Upload NON-SENSITIVE test evidence only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Masarefy-v106-Android14-finance-upgrade-evidence
+          path: |
+            ${{ runner.temp }}/qa-v106/updated-package.txt
+            ${{ runner.temp }}/qa-v106/after-upgrade.png
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Record signed finance-data upgrade result
+        if: success()
+        shell: bash
+        run: |
+          echo "PASS: published signed v1.0.5 / Build 6 upgraded in-place to signed v1.0.6 / Build 7 with 3 financial Room records retained, same package, signer and schema." >> "$GITHUB_STEP_SUMMARY"
+          echo "Signed candidate SHA256: $EXPECTED_NEW_SHA" >> "$GITHUB_STEP_SUMMARY"
