@@ -1,0 +1,151 @@
+name: Publish verified Masarefy v1.0.7 Build 8 upgrade (keep v1.0.6)
+
+on:
+  push:
+    branches: [main]
+    paths: ['.github/release-payload/v107-signed-download.txt']
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish-v107:
+    if: github.repository == 'Eslam-Salah/Masarefy-Updates'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read validated signed upgrade payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t payload < .github/release-payload/v107-signed-download.txt
+          test "${#payload[@]}" -eq 2
+          [[ "${payload[0]}" =~ ^[0-9a-f]{64}$ ]] || exit 1
+          [[ "${payload[1]}" == https://sdmntpritalynorth.oaiusercontent.com/files/* ]] || exit 1
+          echo "EXPECTED_SHA=${payload[0]}" >> "$GITHUB_ENV"
+          echo "SIGNED_ARCHIVE_URL=${payload[1]}" >> "$GITHUB_ENV"
+
+      - name: Download and validate exact signed v1.0.7 APK BEFORE changing Releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/new-v107"
+          curl --fail --location --silent --show-error --retry 3 --max-time 180 \
+            "$SIGNED_ARCHIVE_URL" -o "$RUNNER_TEMP/new-v107.zip"
+          unzip -tqq "$RUNNER_TEMP/new-v107.zip"
+          test "$(unzip -Z1 "$RUNNER_TEMP/new-v107.zip" | wc -l)" -eq 2
+          unzip -Z1 "$RUNNER_TEMP/new-v107.zip" | grep -Fx 'Masarefy-v1.0.7.apk'
+          unzip -Z1 "$RUNNER_TEMP/new-v107.zip" | grep -Fx 'Masarefy-v1.0.7.apk.sha256'
+          unzip -qq "$RUNNER_TEMP/new-v107.zip" -d "$RUNNER_TEMP/new-v107"
+          (cd "$RUNNER_TEMP/new-v107" && sha256sum --check Masarefy-v1.0.7.apk.sha256)
+          echo "$EXPECTED_SHA  $RUNNER_TEMP/new-v107/Masarefy-v1.0.7.apk" | sha256sum --check
+
+      - name: Verify SAME old signing identity and Build 8 package
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_HOME/cmdline-tools" -path '*/bin/sdkmanager' -type f | sort -V | tail -1)"
+          test -n "$SDKMANAGER" && test -x "$SDKMANAGER" || { echo 'Android SDK manager unavailable' >&2; exit 1; }
+          "$SDKMANAGER" 'build-tools;36.0.0'
+          TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          APK="$RUNNER_TEMP/new-v107/Masarefy-v1.0.7.apk"
+          "$TOOLS/apksigner" verify --verbose --print-certs "$APK" |
+            grep -Fi 'Signer #1 certificate SHA-256 digest: fad87f51fe359d06837c915c20f044b1311fea600643e1726649da3f1243e155'
+          "$TOOLS/aapt" dump badging "$APK" |
+            grep -F "package: name='com.masarefy.app' versionCode='8' versionName='1.0.7'"
+
+      - name: Require successful signed in-place Android14 upgrade QA on SAME APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          QA_JSON="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/qa-v107-finance-upgrade.yml/runs?branch=main&per_page=1")"
+          QA_RESULT="$(printf '%s' "$QA_JSON" | jq -r '.workflow_runs[0].conclusion // ""')"
+          QA_SHA="$(printf '%s' "$QA_JSON" | jq -r '.workflow_runs[0].head_sha // ""')"
+          test "$QA_RESULT" = success || {
+            echo 'Strict real v1.0.6-to-v1.0.7 Android upgrade QA is not successful; no publish.' >&2
+            exit 1
+          }
+          [[ "$QA_SHA" =~ ^[a-f0-9]{40}$ ]]
+          QA_PINNED_SHA="$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/qa-payload/v107-signed-download.txt?ref=$QA_SHA" --jq .content | base64 -d | head -n1)"
+          test "$QA_PINNED_SHA" = "$EXPECTED_SHA" || {
+            echo 'The passing upgrade QA tested a different signed APK.' >&2
+            exit 1
+          }
+          QA_SCRIPT="$(gh api "repos/$GITHUB_REPOSITORY/contents/.github/scripts/qa-v107-finance-upgrade.sh?ref=$QA_SHA" --jq .content | base64 -d)"
+          grep -Fq 'adb install -r --no-streaming "$NEW"' <<< "$QA_SCRIPT" || {
+            echo 'The QA did not prove an in-place update.' >&2
+            exit 1
+          }
+          grep -Fq 'verify_room "$QA/post-upgrade"' <<< "$QA_SCRIPT" &&
+            grep -Fq 'qa-v107-installment' <<< "$QA_SCRIPT" &&
+            grep -Fq 'qa-v107-goal' <<< "$QA_SCRIPT" &&
+            grep -Fq 'qa-v107-split-1' <<< "$QA_SCRIPT" &&
+            grep -Fq 'monthly_budgets' <<< "$QA_SCRIPT" &&
+            grep -Fq 'adb install -r --no-streaming "$NEW"' <<< "$QA_SCRIPT" || {
+            echo 'The QA did not check retained app files.' >&2
+            exit 1
+          }
+          echo 'Same-SHA in-place upgrade gate verified.'
+
+      - name: Protect old current install and refuse existing unrecognized v1.0.7
+        shell: bash
+        run: |
+          set -euo pipefail
+          OLD_SHA="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v1.0.6" --jq '.assets[] | select(.name == "Masarefy-v1.0.6.apk") | .digest')"
+          test "$OLD_SHA" = 'sha256:d6fb1f9fbdb556f22c0eec523d89605228b04bbca3cb87f07e5710145cfb6bc3' || {
+            echo 'Existing v1.0.6 public baseline changed unexpectedly; refusing publication.' >&2
+            exit 1
+          }
+          if gh release view v1.0.7 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'v1.0.7 already exists. No overwrites permitted.' >&2
+            exit 1
+          fi
+
+      - name: Publish new v1.0.7 WITHOUT removing previous stable v1.0.6
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > "$RUNNER_TEMP/new-v107/RELEASE_NOTES.md" <<'NOTES'
+          مصاريفي v1.0.7 — حماية العمليات المالية وتحسين دقة الحسابات
+
+          - إصلاح الأقساط الجزئية والسداد المقدم والقسط الأخير، مع تحديث موعد الاستحقاق بدقة.
+          - احتساب المبلغ المتبقي من القسط في السداد السريع والالتزامات القادمة.
+          - منع التعديل أو الحذف من شاشات قديمة إذا تغيرت المعاملة أو تقسيماتها.
+          - حفظ معاملات الإضافة السريعة والصوتية والجماعية كعملية واحدة دون حفظ جزئي.
+          - رفض المبالغ غير الصالحة والتقسيمات غير المتوازنة.
+          - منع تكرار معرّفات الالتزامات وأهداف الادخار من استبدال الأرصدة.
+          - حماية الميزانيات والتصنيفات من التعارض أثناء الحفظ.
+          - الحفاظ على الحزمة والشهادة الأصلية وقاعدة Room 11 دون حذف بيانات المستخدم.
+
+          يُثبّت v1.0.7 / Build 8 كتحديث فوق v1.0.6 / Build 7 دون إزالة التطبيق.
+          يُنصح بإنشاء نسخة احتياطية مشفرة قبل تثبيت التحديث.
+
+
+          NOTES
+          cd "$RUNNER_TEMP/new-v107"
+          gh release create v1.0.7 Masarefy-v1.0.7.apk Masarefy-v1.0.7.apk.sha256 \
+            --repo "$GITHUB_REPOSITORY" --title 'مصاريفي v1.0.7 — سلامة العمليات المالية' \
+            --notes-file RELEASE_NOTES.md --latest
+
+      - name: Independently download published upgrade and validate identity/digest
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/recheck-v107"
+          gh release download v1.0.7 --repo "$GITHUB_REPOSITORY" \
+            --pattern 'Masarefy-v1.0.7.apk' --pattern 'Masarefy-v1.0.7.apk.sha256' \
+            --dir "$RUNNER_TEMP/recheck-v107"
+          (cd "$RUNNER_TEMP/recheck-v107" && sha256sum --check Masarefy-v1.0.7.apk.sha256)
+          echo "$EXPECTED_SHA  $RUNNER_TEMP/recheck-v107/Masarefy-v1.0.7.apk" | sha256sum --check
+          TOOLS="$ANDROID_HOME/build-tools/36.0.0"
+          "$TOOLS/apksigner" verify --verbose --print-certs "$RUNNER_TEMP/recheck-v107/Masarefy-v1.0.7.apk" |
+            grep -Fi 'Signer #1 certificate SHA-256 digest: fad87f51fe359d06837c915c20f044b1311fea600643e1726649da3f1243e155'
+          "$TOOLS/aapt" dump badging "$RUNNER_TEMP/recheck-v107/Masarefy-v1.0.7.apk" |
+            grep -F "package: name='com.masarefy.app' versionCode='8' versionName='1.0.7'"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v1.0.6" --jq .tag_name)" = 'v1.0.6'
+          echo 'PASS: v1.0.7 latest, same signer, Build 8, signed in-place upgrade QA and v1.0.6 preserved.' >> "$GITHUB_STEP_SUMMARY"
